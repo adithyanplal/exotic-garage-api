@@ -63,6 +63,10 @@ app.use("/invoices", express.static(invoicesDir, { maxAge: "1h" }));
 // API Routes
 // --------------------
 app.use("/api", routes);
+app.get("/", (req, res) => {
+  res.json({ status: "API is running" });
+});
+
 
 // --------------------
 // 404 Handler
