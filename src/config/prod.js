@@ -1,6 +1,6 @@
 require('dotenv').config(); // Must be first
 module.exports = {
   db: process.env.PROD_DB,
-  port: process.env.PORT || 3002,
+  port: process.env.PORT || 3000,
   jwtSecret: process.env.JWT_SECRET
 };
