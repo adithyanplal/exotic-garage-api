@@ -1,3 +1,4 @@
+require('dotenv').config(); // Must be first
 module.exports = {
   db: process.env.STAGE_DB,
   port: process.env.PORT || 3001,
