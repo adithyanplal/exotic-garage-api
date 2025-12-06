@@ -350,7 +350,7 @@ async function uploadToHostinger(localFilePath, remoteFileName) {
 
     try {
         await client.access({
-             host: "ftp://217.21.85.59",            // Hostinger FTP host
+             host: "217.21.85.59",            // Hostinger FTP host
             port: 21,                        // FTP port
             user: "u351746020.exoticgarage.in", // FTP username
             password: "1O$e/JNV8TQ&j2K$",    // FTP password
