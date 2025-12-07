@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const InvoiceSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", required: true },
   invoiceNo: { type: String, required: true, unique: true },
+  invoiceDate: { type: Date, default: Date.now }, // fixed here
   items: [
     {
       service: { type: mongoose.Schema.Types.ObjectId, ref: "Service" },

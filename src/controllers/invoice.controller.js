@@ -29,10 +29,14 @@ exports.create = async (req, res) => {
     }
 
     invoiceData.customer = customer._id;
+    invoiceData.invoiceDate = invoiceData.invoiceDate
+  ? new Date(invoiceData.invoiceDate)
+  : new Date();
+
 
     // 2️⃣ Get next invoice number
-    const invoiceNo = await getNextInvoiceNumber();
-    invoiceData.invoiceNo = invoiceNo;
+   const invoiceNo = await getNextInvoiceNumber(invoiceData.invoiceDate);
+invoiceData.invoiceNo = invoiceNo;
 
     // 2.1️⃣ Calculate grandTotal if not provided
     if (!invoiceData.payment.grandTotal) {
@@ -50,7 +54,7 @@ exports.create = async (req, res) => {
 
     // 4️⃣ Generate PDF
     const pdfPath = await generateInvoicePDF({
-      customer: { ...saved.customer.toObject(), invoiceNo, date: saved.createdAt },
+      customer: { ...saved.customer.toObject(), invoiceNo, date: saved.invoiceDate },
       items: saved.items,
       payment: saved.payment,
     });
