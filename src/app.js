@@ -21,8 +21,8 @@ const app = express();
 // CORS Configuration
 // --------------------
 const allowedOrigins = [
-  "http://localhost:3000",       // local dev frontend
-  "http://127.0.0.1:3000",
+"http://localhost:5173",
+"http://127.0.0.1:5173",
   "https://erp.exoticgarage.in", // production ERP frontend
   "https://www.erp.exoticgarage.in"
 ];

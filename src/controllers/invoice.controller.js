@@ -4,89 +4,120 @@ const { generateInvoicePDF } = require("../utils/pdf/invoiceGenerator");
 const getNextInvoiceNumber = require("../utils/invoiceNumber");
 const SmsService = require("../services/sms.service");
 
-// CREATE INVOICE
-exports.create = async (req, res) => {
-  try {
-    const invoiceData = req.body;
-    let customer;
-
-    // 1️⃣ Check if customer exists by vehicle number
-    if (invoiceData.customer.vehicleNo) {
-      customer = await CustomerService.getByVehicleNumber(invoiceData.customer.vehicleNo);
+/**
+ * Helper to ensure date string "YYYY-MM-DD" is treated as the intended date 
+ * regardless of server timezone by setting the time to noon (12:00 PM).
+ * @param {string} dateString 
+ * @returns {Date}
+ */
+const safeParseDate = (dateString) => {
+    if (!dateString) return new Date();
+    
+    const d = new Date(dateString); 
+    
+    // If the date is valid, set the time to 12:00 PM in the server's local time,
+    // which prevents timezone shifts from flipping the day/month.
+    if (!isNaN(d.getTime())) {
+        d.setHours(12, 0, 0, 0); 
+        return d;
     }
-
-    if (!customer) {
-      // 1.1️⃣ Create new customer
-      const newCustomerData = {
-        name: invoiceData.customer.name,
-        phone: invoiceData.customer.phone,
-        email: invoiceData.customer.email,
-        address: invoiceData.customer.address,
-        vehicleNo: invoiceData.customer.vehicleNo,
-        rewardPoints: 0,
-      };
-      customer = await CustomerService.create(newCustomerData);
-    }
-
-    invoiceData.customer = customer._id;
-    invoiceData.invoiceDate = invoiceData.invoiceDate
-  ? new Date(invoiceData.invoiceDate)
-  : new Date();
-
-
-    // 2️⃣ Get next invoice number
-   const invoiceNo = await getNextInvoiceNumber(invoiceData.invoiceDate);
-invoiceData.invoiceNo = invoiceNo;
-
-    // 2.1️⃣ Calculate grandTotal if not provided
-    if (!invoiceData.payment.grandTotal) {
-      invoiceData.payment.grandTotal = invoiceData.items.reduce(
-        (acc, item) => acc + item.price * item.qty,
-        0
-      );
-    }
-
-    // 3️⃣ Save invoice
-    const saved = await InvoiceService.create(invoiceData);
-
-    // 3.1️⃣ Populate customer
-    await saved.populate("customer");
-
-    // 4️⃣ Generate PDF
-    const pdfPath = await generateInvoicePDF({
-      customer: { ...saved.customer.toObject(), invoiceNo, date: saved.invoiceDate },
-      items: saved.items,
-      payment: saved.payment,
-    });
-
-    // 5️⃣ Save PDF path
-   saved.pdfPath = pdfPath.publicUrl.publicUrl;
-    await saved.save();
-
-    // 6️⃣ Reward points
-    const points = Math.floor(saved.payment.grandTotal / 100);
-    const updatedCustomer = await CustomerService.addRewardPoints(saved.customer._id, points);
-    const invoiceLink = pdfPath.publicUrl.publicUrl;
-
-    await SmsService.sendInvoiceLink({
-      customer,
-      phone: customer.phone,
-      invoiceId: saved._id,
-      link: invoiceLink,
-    });
-    res.status(201).json({
-      message: "Invoice created successfully",
-      invoice: saved,
-      pdfPath,
-      rewardPointsEarned: points,
-      customerRewardPoints: updatedCustomer.rewardPoints,
-    });
-  } catch (err) {
-    console.error("INVOICE_CREATE_ERR", err);
-    res.status(500).json({ error: "Server error" });
-  }
+    return new Date();
 };
 
+
+// CREATE INVOICE
+exports.create = async (req, res) => {
+    try {
+        const invoiceData = req.body;
+        let customer;
+
+        // 🚀 Step 0: Store the requested invoice date string from the payload
+        const requestedInvoiceDateStr = req.body.invoiceDate || req.body.customer?.invoiceDate;
+
+        // 1️⃣ Check if customer exists by vehicle number
+        if (invoiceData.customer.vehicleNo) {
+            customer = await CustomerService.getByVehicleNumber(invoiceData.customer.vehicleNo);
+        }
+
+        // 1.1️⃣ Create new customer if not exists
+        if (!customer) {
+            const newCustomerData = {
+                name: invoiceData.customer.name,
+                phone: invoiceData.customer.phone,
+                email: invoiceData.customer.email,
+                address: invoiceData.customer.address,
+                vehicleNo: invoiceData.customer.vehicleNo,
+                rewardPoints: 0,
+            };
+            customer = await CustomerService.create(newCustomerData);
+        }
+
+        // Assign the newly created/found customer ID to the invoice data
+        invoiceData.customer = customer._id;
+
+        // 2️⃣ Use safeParseDate to correctly interpret the date string
+        invoiceData.invoiceDate = safeParseDate(requestedInvoiceDateStr);
+
+        // 3️⃣ Get next invoice number based on the CORRECT date
+        const invoiceNo = await getNextInvoiceNumber(invoiceData.invoiceDate);
+        invoiceData.invoiceNo = invoiceNo;
+
+        // 4️⃣ Ensure payment object exists
+        if (!invoiceData.payment || typeof invoiceData.payment !== "object") {
+            invoiceData.payment = {};
+        }
+
+        // 5️⃣ Calculate grandTotal if not provided
+        if (!invoiceData.payment.grandTotal) {
+            invoiceData.payment.grandTotal = invoiceData.items.reduce(
+                (acc, item) => acc + (item.price || 0) * (item.qty || 0),
+                0
+            );
+        }
+
+        // 6️⃣ Save invoice
+        const saved = await InvoiceService.create(invoiceData);
+
+        // 7️⃣ Populate customer
+        await saved.populate("customer");
+
+        // 8️⃣ Generate PDF
+        const pdfPath = await generateInvoicePDF({
+            customer: { ...saved.customer.toObject(), invoiceNo, date: saved.invoiceDate },
+            items: saved.items,
+            payment: saved.payment,
+        });
+
+        // 9️⃣ Save PDF path
+        saved.pdfPath = pdfPath?.publicUrl?.publicUrl || "";
+        await saved.save();
+
+        // 🔟 Reward points
+        const points = Math.floor(saved.payment.grandTotal / 100);
+        const updatedCustomer = await CustomerService.addRewardPoints(saved.customer._id, points);
+
+        // 1️⃣1️⃣ Send SMS
+        if (saved.customer.phone) {
+            await SmsService.sendInvoiceLink({
+                customer: saved.customer,
+                phone: saved.customer.phone,
+                invoiceId: saved._id,
+                link: saved.pdfPath,
+            });
+        }
+
+        res.status(201).json({
+            message: "Invoice created successfully",
+            invoice: saved,
+            pdfPath: saved.pdfPath,
+            rewardPointsEarned: points,
+            customerRewardPoints: updatedCustomer.rewardPoints,
+        });
+    } catch (err) {
+        console.error("INVOICE_CREATE_ERR", err);
+        res.status(500).json({ error: err.message || "Server error" });
+    }
+};
 
 // GET ALL INVOICES
 exports.getAll = async (req, res) => {
