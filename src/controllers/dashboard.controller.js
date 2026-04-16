@@ -1,5 +1,6 @@
 const Invoice = require("../models/Invoice");
 const Customer = require("../models/Customer");
+const { invoice } = require("../config/settings");
 
 exports.getAnalytics = async (req, res) => {
   try {
@@ -35,7 +36,7 @@ exports.getAnalytics = async (req, res) => {
 
     // 6️⃣ Latest 5 invoices
     const latestInvoices = await Invoice.find()
-      .sort({ createdAt: -1 })
+      .sort({ invoiceDate: -1 })
       .limit(5)
       .populate("customer") // Optional: populate customer info if needed
       .lean(); // convert to plain JS object

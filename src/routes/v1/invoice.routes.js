@@ -7,5 +7,6 @@ router.post("/", auth('admin'), ctrl.create);
 router.get("/", auth('admin'), ctrl.getAll);
 router.get("/:id", auth('admin'), ctrl.getById);
 router.delete("/:id", auth('admin'), ctrl.delete);
+router.put("/:id", auth('admin'), ctrl.update);
 
 module.exports = router;

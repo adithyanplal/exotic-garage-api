@@ -152,3 +152,70 @@ exports.delete = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
+// UPDATE AND REGENERATE INVOICE
+exports.update = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updateData = req.body;
+
+        // 1️⃣ Fetch the existing invoice to handle reward point reversal
+        const oldInvoice = await InvoiceService.getById(id);
+        if (!oldInvoice) return res.status(404).json({ error: "Invoice not found" });
+
+        // 2️⃣ Handle Date & Invoice Number (Optional)
+        // If the date changed, you might need to re-run getNextInvoiceNumber 
+        // depending on your business logic for sequential numbers.
+        if (updateData.invoiceDate) {
+            updateData.invoiceDate = safeParseDate(updateData.invoiceDate);
+        }
+
+        // 3️⃣ Recalculate Grand Total if items changed
+        if (updateData.items) {
+            updateData.payment = updateData.payment || {};
+            updateData.payment.grandTotal = updateData.items.reduce(
+                (acc, item) => acc + (item.price || 0) * (item.qty || 0),
+                0
+            );
+        }
+
+        // 4️⃣ Update the Database record
+        const updatedInvoice = await InvoiceService.update(id, updateData);
+        await updatedInvoice.populate("customer");
+
+        // 5️⃣ Regenerate the PDF
+        // This overwrites the old PDF or creates a new version
+        const pdfPath = await generateInvoicePDF({
+            customer: { 
+                ...updatedInvoice.customer.toObject(), 
+                invoiceNo: updatedInvoice.invoiceNo, 
+                date: updatedInvoice.invoiceDate 
+            },
+            items: updatedInvoice.items,
+            payment: updatedInvoice.payment,
+        });
+
+        // 6️⃣ Update the PDF URL in the document
+        updatedInvoice.pdfPath = pdfPath?.publicUrl?.publicUrl || updatedInvoice.pdfPath;
+        await updatedInvoice.save();
+
+        // 7️⃣ Sync Reward Points
+        // Reverse old points and add new ones to keep the customer balance accurate
+        const oldPoints = Math.floor((oldInvoice.payment?.grandTotal || 0) / 100);
+        const newPoints = Math.floor((updatedInvoice.payment?.grandTotal || 0) / 100);
+        
+        await CustomerService.addRewardPoints(updatedInvoice.customer._id, -oldPoints); // Subtract old
+        const updatedCustomer = await CustomerService.addRewardPoints(updatedInvoice.customer._id, newPoints); // Add new
+
+        res.json({
+            message: "Invoice updated and PDF regenerated successfully",
+            invoice: updatedInvoice,
+            pdfPath: updatedInvoice.pdfPath,
+            customerRewardPoints: updatedCustomer.rewardPoints
+        });
+
+    } catch (err) {
+        console.error("INVOICE_UPDATE_ERR", err);
+        res.status(500).json({ error: err.message || "Server error" });
+    }
+};
